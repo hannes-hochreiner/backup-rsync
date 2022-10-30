@@ -57,8 +57,30 @@ impl<T: Exec> Sync<T> {
     }
 
     /// create a snapshot using a hard link from the backup directory to a timestamped directory in the snapshot folder
-    pub fn create_snapshot(&self) -> Result<(), SyncError> {
-        todo!()
+    pub fn create_snapshot(
+        &self,
+        ssh_user: &str,
+        ssh_id_file: &str,
+        host: &str,
+        backup_path: &str,
+        snapshot_path: &str,
+    ) -> Result<String, SyncError> {
+        // cp -al "$bckPath" "$bckPath1"
+        let command = "ssh";
+        let args = [
+            "-l",
+            ssh_user,
+            "-i",
+            ssh_id_file,
+            host,
+            "cp",
+            "-al",
+            backup_path,
+            snapshot_path,
+        ];
+        let res = self.exec.exec(command, &args)?;
+
+        Ok(res)
     }
 
     /// review snapshots and remove the ones not complying to the policy
@@ -105,6 +127,41 @@ mod test {
             "source",
             "destination",
             "log_file",
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn create_snapshot() {
+        let mut mock = exec_rs::MockExec::new();
+
+        mock.expect_exec().once().returning(|command, args| {
+            assert_eq!(command, "ssh");
+            assert_eq!(
+                args,
+                vec![
+                    "-l",
+                    "ssh_user",
+                    "-i",
+                    "ssh_id_file",
+                    "host",
+                    "cp",
+                    "-al",
+                    "backup_path",
+                    "snapshot_path"
+                ]
+            );
+            Ok("ok".to_string())
+        });
+
+        let sync = Sync::new(mock);
+
+        sync.create_snapshot(
+            "ssh_user",
+            "ssh_id_file",
+            "host",
+            "backup_path",
+            "snapshot_path",
         )
         .unwrap();
     }
