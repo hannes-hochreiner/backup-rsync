@@ -17,6 +17,12 @@ pub struct Sync<T: Exec> {
     exec: T,
 }
 
+pub struct SshCredentials {
+    user: String,
+    id_file: String,
+    host: String,
+}
+
 impl Default for Sync<CommandExec> {
     fn default() -> Self {
         Self {
@@ -34,15 +40,14 @@ impl<T: Exec> Sync<T> {
     /// run rsync to synchronize the local files with the files on the server
     pub fn sync_backup(
         &self,
-        ssh_user: &str,
-        ssh_id_file: &str,
+        ssh_creds: &SshCredentials,
         exclude_file: &str,
         source: &str,
         destination: &str,
         log_file: &str,
     ) -> Result<String, SyncError> {
         // rsync -ave "ssh -l ${conf.sshUser} -i ${conf.sshIdFilename}" --compress --one-file-system --exclude-from=${conf.excludeFilename} --delete-after --delete-excluded ${conf.source} ${conf.destination} > ${conf.logFilename}
-        let ssh_command = vec!["ssh", "-l", ssh_user, "-i", ssh_id_file].join(" ");
+        let ssh_command = vec!["ssh", "-l", &ssh_creds.user, "-i", &ssh_creds.id_file].join(" ");
         let exclude_file = format!("--exclude-from={}", exclude_file);
         let rsync_args = vec![
             "-ave",
@@ -66,9 +71,7 @@ impl<T: Exec> Sync<T> {
     /// create a snapshot using a hard link from the backup directory to a timestamped directory in the snapshot folder
     pub fn create_snapshot(
         &self,
-        ssh_user: &str,
-        ssh_id_file: &str,
-        host: &str,
+        ssh_creds: &SshCredentials,
         backup_path: &str,
         snapshot_path: &str,
     ) -> Result<String, SyncError> {
@@ -76,10 +79,10 @@ impl<T: Exec> Sync<T> {
         let command = "ssh";
         let args = [
             "-l",
-            ssh_user,
+            &ssh_creds.user,
             "-i",
-            ssh_id_file,
-            host,
+            &ssh_creds.id_file,
+            &ssh_creds.host,
             "cp",
             "-al",
             backup_path,
@@ -93,9 +96,7 @@ impl<T: Exec> Sync<T> {
     /// get snapshots
     pub fn get_snapshots(
         &self,
-        ssh_user: &str,
-        ssh_id_file: &str,
-        host: &str,
+        ssh_creds: &SshCredentials,
         snapshot_path: &str,
     ) -> Result<Vec<(DateTime<FixedOffset>, String)>, SyncError> {
         // ls -A1
@@ -105,10 +106,10 @@ impl<T: Exec> Sync<T> {
                 "ssh",
                 &[
                     "-l",
-                    ssh_user,
+                    &ssh_creds.user,
                     "-i",
-                    ssh_id_file,
-                    host,
+                    &ssh_creds.id_file,
+                    &ssh_creds.host,
                     "ls",
                     "-A1",
                     snapshot_path,
@@ -132,9 +133,7 @@ impl<T: Exec> Sync<T> {
     /// review snapshots and remove the ones not complying to the policy
     pub fn delete_snapshot(
         &self,
-        ssh_user: &str,
-        ssh_id_file: &str,
-        host: &str,
+        ssh_creds: &SshCredentials,
         snapshot_path: &str,
     ) -> Result<(), SyncError> {
         if ["/", ""].iter().any(|&s| s == snapshot_path) {
@@ -144,10 +143,10 @@ impl<T: Exec> Sync<T> {
             "ssh",
             &[
                 "-l",
-                ssh_user,
+                &ssh_creds.user,
                 "-i",
-                ssh_id_file,
-                host,
+                &ssh_creds.id_file,
+                &ssh_creds.host,
                 "rm",
                 "-r",
                 snapshot_path,
@@ -192,8 +191,11 @@ mod test {
         let sync = Sync::new(mock);
 
         sync.sync_backup(
-            "ssh_user",
-            "ssh_id_file",
+            &SshCredentials {
+                user: "ssh_user".to_string(),
+                id_file: "ssh_id_file".to_string(),
+                host: "host".to_string(),
+            },
             "exclude_file",
             "source",
             "destination",
@@ -228,9 +230,11 @@ mod test {
         let sync = Sync::new(mock);
 
         sync.create_snapshot(
-            "ssh_user",
-            "ssh_id_file",
-            "host",
+            &SshCredentials {
+                user: "ssh_user".to_string(),
+                id_file: "ssh_id_file".to_string(),
+                host: "host".to_string(),
+            },
             "backup_path",
             "snapshot_path",
         )
@@ -262,7 +266,14 @@ mod test {
         let sync = Sync::new(mock);
 
         let res = sync
-            .get_snapshots("ssh_user", "ssh_id_file", "host", "snapshot_path")
+            .get_snapshots(
+                &SshCredentials {
+                    user: "ssh_user".to_string(),
+                    id_file: "ssh_id_file".to_string(),
+                    host: "host".to_string(),
+                },
+                "snapshot_path",
+            )
             .unwrap();
         assert_eq!(
             vec![
@@ -307,7 +318,14 @@ mod test {
 
         let sync = Sync::new(mock);
 
-        sync.delete_snapshot("ssh_user", "ssh_id_file", "host", "snapshot_path")
-            .unwrap();
+        sync.delete_snapshot(
+            &SshCredentials {
+                user: "ssh_user".to_string(),
+                id_file: "ssh_id_file".to_string(),
+                host: "host".to_string(),
+            },
+            "snapshot_path",
+        )
+        .unwrap();
     }
 }
