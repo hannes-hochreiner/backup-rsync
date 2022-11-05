@@ -119,10 +119,10 @@ impl<T: Exec> Sync<T> {
             .filter_map(|s| {
                 match s
                     .split('_')
-                    .nth(0)
+                    .next()
                     .ok_or(SyncError::SplitError)
                     .and_then(|token| DateTime::parse_from_rfc3339(token).map_err(|e| e.into()))
-                    .and_then(|date| Ok((date, s)))
+                    .map(|date| (date, s))
                 {
                     Ok((date, s)) => Some((date, s.to_string())),
                     Err(_) => None,
