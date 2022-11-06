@@ -1,5 +1,6 @@
 use chrono::{DateTime, FixedOffset};
 use exec_rs::{CommandExec, Exec};
+use std::path::Path;
 
 #[derive(thiserror::Error, Debug)]
 pub enum SyncError {
@@ -9,6 +10,8 @@ pub enum SyncError {
     SplitError,
     #[error("path deletion error ({0})")]
     PathDeletionError(String),
+    #[error("error converting path to string ({0})")]
+    PathConversionError(String),
     #[error(transparent)]
     ChronoParseError(#[from] chrono::ParseError),
 }
@@ -41,14 +44,19 @@ impl<T: Exec> Sync<T> {
     pub fn sync_backup(
         &self,
         ssh_creds: &SshCredentials,
-        exclude_file: &str,
-        source: &str,
-        destination: &str,
-        log_file: &str,
+        exclude_file: &Path,
+        source: &Path,
+        destination: &Path,
+        log_file: &Path,
     ) -> Result<String, SyncError> {
         // rsync -ave "ssh -l ${conf.sshUser} -i ${conf.sshIdFilename}" --compress --one-file-system --exclude-from=${conf.excludeFilename} --delete-after --delete-excluded ${conf.source} ${conf.destination} > ${conf.logFilename}
         let ssh_command = vec!["ssh", "-l", &ssh_creds.user, "-i", &ssh_creds.id_file].join(" ");
-        let exclude_file = format!("--exclude-from={}", exclude_file);
+        let exclude_file = format!(
+            "--exclude-from={}",
+            exclude_file
+                .to_str()
+                .ok_or(SyncError::PathConversionError("exclude file".to_string()))?
+        );
         let rsync_args = vec![
             "-ave",
             &ssh_command,
@@ -57,10 +65,16 @@ impl<T: Exec> Sync<T> {
             &exclude_file,
             "--delete-after",
             "--delete-excluded",
-            source,
-            destination,
+            source
+                .to_str()
+                .ok_or(SyncError::PathConversionError("source".to_string()))?,
+            destination
+                .to_str()
+                .ok_or(SyncError::PathConversionError("destination".to_string()))?,
             ">",
-            log_file,
+            log_file
+                .to_str()
+                .ok_or(SyncError::PathConversionError("log file".to_string()))?,
         ];
 
         let res = self.exec.exec("rsync", &rsync_args[..])?;
@@ -72,8 +86,8 @@ impl<T: Exec> Sync<T> {
     pub fn create_snapshot(
         &self,
         ssh_creds: &SshCredentials,
-        backup_path: &str,
-        snapshot_path: &str,
+        backup_path: &Path,
+        snapshot_path: &Path,
     ) -> Result<String, SyncError> {
         // cp -al "$bckPath" "$bckPath1"
         let command = "ssh";
@@ -85,8 +99,12 @@ impl<T: Exec> Sync<T> {
             &ssh_creds.host,
             "cp",
             "-al",
-            backup_path,
-            snapshot_path,
+            backup_path
+                .to_str()
+                .ok_or(SyncError::PathConversionError("backup".to_string()))?,
+            snapshot_path
+                .to_str()
+                .ok_or(SyncError::PathConversionError("snapshot".to_string()))?,
         ];
         let res = self.exec.exec(command, &args)?;
 
@@ -97,7 +115,7 @@ impl<T: Exec> Sync<T> {
     pub fn get_snapshots(
         &self,
         ssh_creds: &SshCredentials,
-        snapshot_path: &str,
+        snapshot_path: &Path,
     ) -> Result<Vec<(DateTime<FixedOffset>, String)>, SyncError> {
         // ls -A1
         Ok(self
@@ -112,7 +130,9 @@ impl<T: Exec> Sync<T> {
                     &ssh_creds.host,
                     "ls",
                     "-A1",
-                    snapshot_path,
+                    snapshot_path
+                        .to_str()
+                        .ok_or(SyncError::PathConversionError("snapshot".to_string()))?,
                 ],
             )?
             .split('\n')
@@ -134,8 +154,12 @@ impl<T: Exec> Sync<T> {
     pub fn delete_snapshot(
         &self,
         ssh_creds: &SshCredentials,
-        snapshot_path: &str,
+        snapshot_path: &Path,
     ) -> Result<(), SyncError> {
+        let snapshot_path = snapshot_path
+            .to_str()
+            .ok_or(SyncError::PathConversionError("snapshot".to_string()))?;
+
         if ["/", ""].iter().any(|&s| s == snapshot_path) {
             return Err(SyncError::PathDeletionError(snapshot_path.to_string()));
         }
@@ -196,10 +220,10 @@ mod test {
                 id_file: "ssh_id_file".to_string(),
                 host: "host".to_string(),
             },
-            "exclude_file",
-            "source",
-            "destination",
-            "log_file",
+            &Path::new("exclude_file"),
+            &Path::new("source"),
+            &Path::new("destination"),
+            &Path::new("log_file"),
         )
         .unwrap();
     }
@@ -235,8 +259,8 @@ mod test {
                 id_file: "ssh_id_file".to_string(),
                 host: "host".to_string(),
             },
-            "backup_path",
-            "snapshot_path",
+            &Path::new("backup_path"),
+            &Path::new("snapshot_path"),
         )
         .unwrap();
     }
@@ -272,7 +296,7 @@ mod test {
                     id_file: "ssh_id_file".to_string(),
                     host: "host".to_string(),
                 },
-                "snapshot_path",
+                &Path::new("snapshot_path"),
             )
             .unwrap();
         assert_eq!(
@@ -324,7 +348,7 @@ mod test {
                 id_file: "ssh_id_file".to_string(),
                 host: "host".to_string(),
             },
-            "snapshot_path",
+            &Path::new("snapshot_path"),
         )
         .unwrap();
     }
